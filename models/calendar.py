@@ -5,7 +5,7 @@ class Meeting(BaseModel):
     title: str
     start_time: str
     end_time: str
-    is_valuable: bool
+    should_be_done_asynchronously: bool
     reason: Optional[str] = None
 
 class CalendarAnalysis(BaseModel):

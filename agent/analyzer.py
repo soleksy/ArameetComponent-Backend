@@ -32,12 +32,12 @@ def analyze_calendar_image(image_path: str) -> CalendarAnalysis:
                         - Do not include any meetings or analysis when false.
 
                         2. If calendar_detected is true:
-                        - Extract **all meetings** visible in the calendar.
-                        - For each meeting, **you must** include:
+                        - Extract ALL MEETINGS visible in the calendar.
+                        - For each meeting, YOU MUST include:
                             - `title`
                             - `start_time` and `end_time` in ISO 8601 (e.g. `"2025-08-04T14:00:00"`)
                             - If times are missing (e.g. “bars” on a grid), *estimate* them based on relative bar height compared to events with explicit times—justify your estimate.
-                            - `is_valuable`: Boolean indicating whether this meeting type is suitable for conversion to an **asynchronous video thread** on Arameet.
+                            - `should_be_done_asynchronously`: Boolean indicating whether this meeting type is suitable for conversion to an asynchronous video thread on Arameet. REMEMBER to be REASONABLE here, most meetings must be done synchronously.
                             - `reason`: Brief explanation why it's considered valuable (or not).
 
                         3. Time analysis:

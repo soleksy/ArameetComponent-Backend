@@ -24,7 +24,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[],  # keep empty
+    allow_origins=[],
     allow_origin_regex=r"https:\/\/.*\.framercanvas\.com$|https:\/\/.*\.framer\.app$|https:\/\/arameetcomponent-backend\.onrender\.com$",
     allow_credentials=True,
     allow_methods=["POST"],
@@ -69,3 +69,8 @@ async def analyze(background_tasks: BackgroundTasks, file: UploadFile = File(...
     log.info("Analysis completed in %.2fs | Calendar detected: %s", dt, result.calendar_detected)
 
     return JSONResponse(content=result.model_dump())
+
+# ── Ping Route ────────────────────────────────────────
+@app.get("/ping")
+async def ping():
+    return {"status": "ok", "message": "Arameet Calendar Agent is running"}
