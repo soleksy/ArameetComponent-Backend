@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
 from pathlib import Path
 import shutil, uuid, time, logging, os
+import re
 
 from models.calendar import CalendarAnalysis
 from agent.analyzer import analyze_calendar_image
@@ -23,11 +24,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "https://your-framer-site",   
-        "https://*.onrender.com",     
-    ],
+    allow_origins=[],  # keep empty
+    allow_origin_regex=r"https:\/\/.*\.framercanvas\.com$|https:\/\/.*\.framer\.app$|https:\/\/arameetcomponent-backend\.onrender\.com$",
     allow_credentials=True,
     allow_methods=["POST"],
     allow_headers=["*"],
