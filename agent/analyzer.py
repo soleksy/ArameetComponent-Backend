@@ -50,6 +50,8 @@ def analyze_calendar_image(image_path: str) -> CalendarAnalysis:
                             "suggestion": "<short imperative sentence (≤16 words)>",
                             "format": "recording" | "thread" | "checklist" | null
                         }
+                        IN SUGGESTION ALWAYS INCLUDE ONE EXAMPLE OF THE USERS MEETING THAT MATCHES THE RECOMMENDATION.
+                        eg. "Convert daily standups like "HERE_MEETING_NAME" to async thread with video highlights."
 
                         4. Recommended categories suitable for async meetings include (BUT ARE NOT LIMITED TO):
                         - Daily stand‑ups / 1:1s

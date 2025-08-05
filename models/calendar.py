@@ -18,4 +18,4 @@ class CalendarAnalysis(BaseModel):
     meetings: List[Meeting] = []
     total_meeting_hours: Optional[float] = 0.0
     potential_savings_hours: Optional[float] = 0.0
-    recommendations: List[Recommendation]= []
+    recommendations: List[Recommendation] = []
