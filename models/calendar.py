@@ -1,6 +1,11 @@
 from pydantic import BaseModel
 from typing import List, Optional
 
+class Recommendation(BaseModel):	
+    title: str
+    suggestion: str
+    format: Optional[str] = None  
+
 class Meeting(BaseModel):
     title: str
     start_time: str
@@ -13,4 +18,4 @@ class CalendarAnalysis(BaseModel):
     meetings: List[Meeting] = []
     total_meeting_hours: Optional[float] = 0.0
     potential_savings_hours: Optional[float] = 0.0
-    recommendations: Optional[List[str]] = []
+    recommendations: List[Recommendation]= []

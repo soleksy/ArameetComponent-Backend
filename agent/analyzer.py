@@ -18,7 +18,7 @@ def analyze_calendar_image(image_path: str) -> CalendarAnalysis:
     base64_image = encode_image(image_path)
 
     completion = client.chat.completions.parse(
-        model="o4-mini",
+        model="gpt-4.1-mini",
         response_format=CalendarAnalysis,
         messages=[
             {
@@ -38,14 +38,20 @@ def analyze_calendar_image(image_path: str) -> CalendarAnalysis:
                             - `start_time` and `end_time` in ISO 8601 (e.g. `"2025-08-04T14:00:00"`)
                             - If times are missing (e.g. “bars” on a grid), *estimate* them based on relative bar height compared to events with explicit times—justify your estimate.
                             - `should_be_done_asynchronously`: Boolean indicating whether this meeting type is suitable for conversion to an asynchronous video thread on Arameet. REMEMBER to be REASONABLE here, most meetings must be done synchronously.
-                            - `reason`: Brief explanation why it's considered valuable (or not).
+                            - `reason`: Brief explanation why it's considered to be possible to convert this meeting to async or not.
 
                         3. Time analysis:
                         - Summarize `total_meeting_hours`.
-                        - Compute `potential_savings_hours` by summing durations of “valuable” meetings.
-                        - Provide `recommendations`: Suggestions for which meetings could be converted to async format (e.g. “Convert daily stand‑ups and design reviews to asynchronous video threads”).
+                        - Compute `potential_savings_hours` from meetings marked valuable.
+                        - **Return `recommendations` as a list of objects**:
 
-                        4. Recommended categories suitable for async meetings include (but are not limited to):
+                        {
+                            "title": "<concise meeting name>",
+                            "suggestion": "<short imperative sentence (≤16 words)>",
+                            "format": "recording" | "thread" | "checklist" | null
+                        }
+
+                        4. Recommended categories suitable for async meetings include (BUT ARE NOT LIMITED TO):
                         - Daily stand‑ups / 1:1s
                         - Brainstorms
                         - Peer feedback sessions
