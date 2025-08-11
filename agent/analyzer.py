@@ -18,7 +18,7 @@ def analyze_calendar_image(image_path: str) -> CalendarAnalysis:
     base64_image = encode_image(image_path)
 
     completion = client.chat.completions.parse(
-        model="o4-mini",
+        model="gpt-4.1",
         response_format=CalendarAnalysis,
         messages=[
             {
