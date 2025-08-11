@@ -15,6 +15,8 @@ class Meeting(BaseModel):
 
 class CalendarAnalysis(BaseModel):
     calendar_detected: bool
+    total_meetings_detected: int
+    total_meetings_to_be_done_asynchronously: int
     meetings: List[Meeting] = []
     total_meeting_hours: Optional[float] = 0.0
     potential_savings_hours: Optional[float] = 0.0
