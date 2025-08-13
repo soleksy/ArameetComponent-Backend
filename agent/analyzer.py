@@ -18,7 +18,7 @@ def analyze_calendar_image(image_path: str) -> CalendarAnalysis:
     base64_image = encode_image(image_path)
 
     completion = client.chat.completions.parse(
-        model="gpt-4.1",
+        model="o4-mini",
         response_format=CalendarAnalysis,
         messages=[
             {
@@ -32,10 +32,11 @@ def analyze_calendar_image(image_path: str) -> CalendarAnalysis:
                         - Do not include any meetings or analysis when false.
 
                         2. If calendar_detected is true:
-                        - Extract ALL MEETINGS visible in the calendar.
+                        - Extract ALL TEXT visible in the calendar.
+                        - BASED ON THE EXTRACTED TEXT, IDENTIFY ALL MEETINGS.
                         - For each meeting, YOU MUST include:
                             - `title`
-                            - `start_time` and `end_time` in ISO 8601 (e.g. `"2025-08-04T14:00:00"`)
+                            - `start_time` and `end_time` in ISO 8601 (e.g. `"2025-08-04T14:00:00"`) if available.
                             - If times are missing (e.g. “bars” on a grid), *estimate* them based on relative bar height compared to events with explicit times—justify your estimate.
                             - `should_be_done_asynchronously`: Boolean indicating whether this meeting type is suitable for conversion to an asynchronous video thread on Arameet. REMEMBER to be REASONABLE here, most meetings must be done synchronously.
                             - `reason`: Brief explanation why it's considered to be possible to convert this meeting to async or not.
