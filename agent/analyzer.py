@@ -1,90 +1,248 @@
+# agent/analyzer.py
 import base64
-from openai import OpenAI
-from models.calendar import CalendarAnalysis
 import os
+from datetime import datetime
+from typing import List, Tuple
+
 import dotenv
+from openai import OpenAI
+
+from models.calendar import (
+    BackendResponse,
+    ExtractionResult,
+    ExtractedMeeting,
+    AsyncGrading,
+    RecommendationsEnvelope,
+    Meeting,
+)
 
 dotenv.load_dotenv()
-
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
 client = OpenAI(api_key=OPENAI_API_KEY)
+
+# ----------------------- Utils -----------------------
 
 def encode_image(image_path: str) -> str:
     with open(image_path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode("utf-8")
 
-def analyze_calendar_image(image_path: str) -> CalendarAnalysis:
-    base64_image = encode_image(image_path)
+def _parse_iso(dt: str):
+    try:
+        # Accept "YYYY-MM-DDTHH:MM:SS" or with timezone; fromisoformat handles both
+        return datetime.fromisoformat(dt)
+    except Exception:
+        return None
 
+def _duration_hours(start_iso: str, end_iso: str) -> float:
+    s = _parse_iso(start_iso)
+    e = _parse_iso(end_iso)
+    if not s or not e:
+        return 0.0
+    delta = (e - s).total_seconds()
+    return max(0.0, round(delta / 3600.0, 3))
+
+def _aggregate_hours(meetings: List[Meeting]) -> Tuple[float, float]:
+    total = 0.0
+    savings = 0.0
+    for m in meetings:
+        d = _duration_hours(m.start_time, m.end_time)
+        total += d
+        if m.should_be_done_asynchronously:
+            savings += d
+    return round(total, 3), round(savings, 3)
+
+# ---------------- Stage 1: Extract meetings (image only) ----------------
+
+def _extract_meetings(image_path: str) -> ExtractionResult:
+    """
+    Uses o4-mini to: detect calendar + extract (title, start_time, end_time)
+    No grading here.
+    """
+    base64_image = encode_image(image_path)
     completion = client.chat.completions.parse(
         model="o4-mini",
-        response_format=CalendarAnalysis,
+        response_format=ExtractionResult,
         messages=[
             {
                 "role": "system",
                 "content": (
-                    '''You are a Calendar Analysis Assistant for Arameet, a platform that enables asynchronous meetings with video recordings and AI-powered highlights. The user will provide an image that *may* be a calendar.
-
-                        Your tasks:
-                        1. Detect if the image is a calendar:
-                        - If not, respond only with: `calendar_detected: false`
-                        - Do not include any meetings or analysis when false.
-
-                        2. If calendar_detected is true:
-                        - Extract ALL TEXT visible in the calendar.
-                        - BASED ON THE EXTRACTED TEXT, IDENTIFY ALL MEETINGS.
-                        - For each meeting, YOU MUST include:
-                            - `title`
-                            - `start_time` and `end_time` in ISO 8601 (e.g. `"2025-08-04T14:00:00"`) if available.
-                            - If times are missing (e.g. “bars” on a grid), *estimate* them based on relative bar height compared to events with explicit times—justify your estimate.
-                            - `should_be_done_asynchronously`: Boolean indicating whether this meeting type is suitable for conversion to an asynchronous video thread on Arameet. REMEMBER to be REASONABLE here, most meetings must be done synchronously.
-                            - `reason`: Brief explanation why it's considered to be possible to convert this meeting to async or not.
-
-                        3. Time analysis:
-                        - Summarize `total_meeting_hours`.
-                        - Compute `potential_savings_hours` from meetings marked valuable.
-                        - **Return `recommendations` as a list of objects**:
-
-                        {
-                            "title": "<concise meeting name capitalized first letter>",
-                            "suggestion": "<short imperative sentence (≤16 words)>",
-                            "format": "recording" | "thread" | "checklist" | null
-                        }
-                        IN SUGGESTION ALWAYS INCLUDE ONE EXAMPLE OF THE USERS MEETING THAT MATCHES THE RECOMMENDATION.
-                        eg. "Convert daily standups like "HERE_MEETING_NAME" to async thread with video highlights."
-
-                        4. Recommended categories suitable for async meetings include (BUT ARE NOT LIMITED TO):
-                        - Daily stand‑ups / 1:1s
-                        - Brainstorms
-                        - Peer feedback sessions
-                        - Interview debriefs
-                        - Project status updates
-                        - CEO or company Q&A
-                        - Design reviews
-                        - Complex code reviews
-                        - Product demos and reviews'''
-                )
+                    "You extract meetings from calendar screenshots.\n"
+                    "Return ONLY:\n"
+                    "  calendar_detected: boolean\n"
+                    "  meetings: array of { title, start_time, end_time } (ISO 8601 times when available; "
+                    "  if missing, estimate and assume < 45 minutes).\n"
+                    "If it's not a calendar, set calendar_detected=false and return meetings=[]."
+                ),
             },
             {
                 "role": "user",
                 "content": [
-                    { "type": "text", "text": "Please analyze this image." },
+                    {"type": "text", "text": "Extract meetings from this image."},
                     {
                         "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{base64_image}",
-                        },
+                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
                     },
                 ],
-            }
-        ]
+            },
+        ],
     )
-
     return completion.choices[0].message.parsed
 
+# ----------- Stage 2: Grade meetings (should be async?) -----------------
 
+def _grade_meetings_async(extracted: List[ExtractedMeeting]) -> List[bool]:
+    """
+    Uses gpt-4o-mini to assign should_be_done_asynchronously for each meeting.
+    Rule: TRUE unless ANY of the negative criteria match (then FALSE).
+    """
+    # Prepare compact meeting list for the model
+    as_plain = [
+        {"title": m.title, "start_time": m.start_time, "end_time": m.end_time}
+        for m in extracted
+    ]
+
+    grading = client.chat.completions.parse(
+        model="gpt-4o-mini",
+        response_format=AsyncGrading,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are grading meetings for asynchronous suitability.\n"
+                    "Return an object with 'should_be_done_asynchronously': boolean[] aligned to the input order.\n"
+                    "Set a meeting's value to FALSE (i.e., should NOT be async) if ANY of these negative criteria are met:\n"
+                    "1) Duration > 3 hours.\n"
+                    "2) Non-meeting/personal blocks (gym, focus/deep work, hairdresser/barber, doctor/dentist, lunch/breakfast/dinner/coffee,\n"
+                    "   kids/school pick-up, PTO/OOO/vacation/leave, travel/trip).\n"
+                    "3) External/sales/PR/investor context (sales, discovery, demo call, prospect, client/customer, QBR, renewal,\n"
+                    "   success, account, vendor, partner, agency, press/media, PR, investor, fundraising, due diligence).\n"
+                    "4) Public events (webinar, conference, meetup, podcast, event, community).\n"
+                    "5) Recruiting (interview, screening) unless explicitly a 'debrief'.\n"
+                    "6) Offline room hints (room/meeting room/boardroom, office).\n"
+                    "7) Signal collision → negative wins (e.g., 'Sprint review with Client X', 'Product demo with Contoso').\n"
+                    "Otherwise set to TRUE (i.e., should be async)."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Meetings (ordered): {as_plain}",
+            },
+        ],
+    ).choices[0].message.parsed
+
+    return grading.should_be_done_asynchronously
+
+# ---------------- Stage 3: Recommendations (uses gpt-4o) ----------------
+
+def _make_recommendations(final_meetings: List[Meeting]) -> List[dict]:
+    """
+    Uses gpt-4o to produce practical, action-oriented recommendations.
+    Each recommendation must include at least one concrete example referencing
+    an actual meeting title from `final_meetings`.
+    """
+    # Keep the payload light and deterministic for the model
+    mini_view = [
+        {
+            "title": m.title,
+            "start_time": m.start_time,
+            "end_time": m.end_time,
+            "should_be_done_asynchronously": m.should_be_done_asynchronously,
+        }
+        for m in final_meetings
+    ]
+
+    recs = client.chat.completions.parse(
+        model="gpt-4o",
+        response_format=RecommendationsEnvelope,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are an assistant that suggests how to reduce live meetings by converting suitable ones to async workflows.\n"
+                    "Return `recommendations: Recommendation[]` where each item has {title, suggestion}.\n"
+                    "Rules:\n"
+                    "- Use the user's meetings to anchor every suggestion: mention at least one example meeting title that matches.\n"
+                    "- Don't invent meetings not present in input."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Based on these meetings (with async flags), produce 2–4 recommendations. "
+                    f"Meetings: {mini_view}"
+                ),
+            },
+        ],
+    ).choices[0].message.parsed
+
+    # Return as plain dicts (already Pydantic-validated upstream)
+    return [r.dict() for r in recs.recommendations]
+
+# ---------------- Public API: analyze_calendar_image --------------------
+
+def analyze_calendar_image(image_path: str) -> BackendResponse:
+    """
+    Full pipeline:
+      1) Extract meetings (o4-mini)
+      2) Grade async suitability (gpt-4o-mini)
+      3) Create recommendations (gpt-4o)
+      4) Compute totals and savings
+      5) Return BackendResponse
+    """
+    extraction = _extract_meetings(image_path)
+
+    if not extraction.calendar_detected:
+        return BackendResponse(
+            calendar_detected=False,
+            total_meetings_detected=0,
+            total_meetings_to_be_done_asynchronously=0,
+            meetings=[],
+            recommendations=[],
+        )
+
+    # Stage 2: grade
+    decisions = _grade_meetings_async(extraction.meetings)
+    # Align lengths defensively
+    n = min(len(extraction.meetings), len(decisions))
+    final_meetings: List[Meeting] = []
+    for i in range(n):
+        em = extraction.meetings[i]
+        final_meetings.append(
+            Meeting(
+                title=em.title,
+                start_time=em.start_time,
+                end_time=em.end_time,
+                should_be_done_asynchronously=decisions[i],
+            )
+        )
+
+    # Totals
+    total_hours, savings_hours = _aggregate_hours(final_meetings)
+    total_detected = len(final_meetings)
+    total_async = sum(1 for m in final_meetings if m.should_be_done_asynchronously)
+
+    # Stage 3: recommendations
+    recs = _make_recommendations(final_meetings)
+
+    return BackendResponse(
+        calendar_detected=True,
+        total_meetings_detected=total_detected,
+        total_meetings_to_be_done_asynchronously=total_async,
+        meetings=final_meetings,
+        total_meeting_hours=total_hours,
+        potential_savings_hours=savings_hours,
+        recommendations=recs,
+    )
+
+# ------------- CLI smoke test -------------
 if __name__ == "__main__":
-    image_path = "uploads/calendar.png"
-    result = analyze_calendar_image(image_path)
-    print(result.model_dump_json(indent=2))
+    img = "uploads/calendar.png"
+    out = analyze_calendar_image(img)
+    # Print nicely
+    try:
+        # Pydantic v2
+        print(out.model_dump_json(indent=2, ensure_ascii=False))
+    except Exception:
+        # Fallback
+        import json
+        print(json.dumps(out.dict(), indent=2, ensure_ascii=False))

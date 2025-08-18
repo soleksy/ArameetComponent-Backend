@@ -1,2 +1,3 @@
 from .analyzer import analyze_calendar_image
-from models.calendar import CalendarAnalysis
+
+__all__ = ["analyze_calendar_image"]
