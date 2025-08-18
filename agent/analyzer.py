@@ -19,6 +19,7 @@ from models.calendar import (
 dotenv.load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)
+EXTRACT_MODEL = os.getenv("ARAMEET_MODEL_EXTRACT", "o4-mini") 
 
 # ----------------------- Utils -----------------------
 
@@ -55,12 +56,12 @@ def _aggregate_hours(meetings: List[Meeting]) -> Tuple[float, float]:
 
 def _extract_meetings(image_path: str) -> ExtractionResult:
     """
-    Uses o4-mini to: detect calendar + extract (title, start_time, end_time)
+    Uses EXTRACT_MODEL to: detect calendar + extract (title, start_time, end_time)
     No grading here.
     """
     base64_image = encode_image(image_path)
     completion = client.chat.completions.parse(
-        model="o4-mini",
+        model=EXTRACT_MODEL,  # <— only place you change
         response_format=ExtractionResult,
         messages=[
             {
@@ -120,6 +121,8 @@ def _grade_meetings_async(extracted: List[ExtractedMeeting]) -> List[bool]:
                     "5) Recruiting (interview, screening) unless explicitly a 'debrief'.\n"
                     "6) Offline room hints (room/meeting room/boardroom, office).\n"
                     "7) Signal collision → negative wins (e.g., 'Sprint review with Client X', 'Product demo with Contoso').\n"
+                    "8) **Interactive working sessions (require real-time coordination):** hands-on session, workshop, lab, live pairing,\n"
+                    "   onboarding/training sessions, troubleshooting sessions.\n"
                     "Otherwise set to TRUE (i.e., should be async)."
                 ),
             },
@@ -165,6 +168,7 @@ def _make_recommendations(final_meetings: List[Meeting]) -> List[dict]:
                     "- Use the user's meetings to anchor every suggestion: mention at least one example meeting title that matches. If there are more use plural form and return one recommendation.\n"
                     "- Don't invent meetings not present in input."
                     "- Keep suggestions concise and actionable. AND ALWAYS SUGGEST ASYNC VIDEO RECORDINGS sometimes with threads."
+                    "Example: Convert the 'Weekly Szymon-Magda' meeting to an async video update with threads."
                 ),
             },
             {
@@ -177,7 +181,6 @@ def _make_recommendations(final_meetings: List[Meeting]) -> List[dict]:
         ],
     ).choices[0].message.parsed
 
-    # Return as plain dicts (already Pydantic-validated upstream)
     return [r.dict() for r in recs.recommendations]
 
 # ---------------- Public API: analyze_calendar_image --------------------
