@@ -158,17 +158,19 @@ def _make_recommendations(final_meetings: List[Meeting]) -> List[dict]:
             {
                 "role": "system",
                 "content": (
-                    "You are an assistant that suggests how to reduce live meetings by converting suitable ones to async workflows.\n"
+                    "You are an Ara's assistant, the product to help switch from synchronous meetings to async ones."
+                    "Suggest how to reduce live meetings by converting suitable ones to async workflows. You should only suggest async video recordings with threads. Since its the Ara's current functionality.\n"
                     "Return `recommendations: Recommendation[]` where each item has {title, suggestion}.\n"
                     "Rules:\n"
-                    "- Use the user's meetings to anchor every suggestion: mention at least one example meeting title that matches.\n"
+                    "- Use the user's meetings to anchor every suggestion: mention at least one example meeting title that matches. If there are more use plural form and return one recommendation.\n"
                     "- Don't invent meetings not present in input."
+                    "- Keep suggestions concise and actionable. AND ALWAYS SUGGEST ASYNC VIDEO RECORDINGS sometimes with threads."
                 ),
             },
             {
                 "role": "user",
                 "content": (
-                    "Based on these meetings (with async flags), produce 2–4 recommendations. "
+                    "Based on these meetings (with async flags), produce recommendations."
                     f"Meetings: {mini_view}"
                 ),
             },
