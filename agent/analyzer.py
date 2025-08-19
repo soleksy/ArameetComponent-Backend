@@ -123,6 +123,7 @@ def _grade_meetings_async(extracted: List[ExtractedMeeting]) -> List[bool]:
                     "7) Signal collision → negative wins (e.g., 'Sprint review with Client X', 'Product demo with Contoso').\n"
                     "8) **Interactive working sessions (require real-time coordination):** hands-on session, workshop, lab, live pairing,\n"
                     "   onboarding/training sessions, troubleshooting sessions.\n"
+                    "9) Busy"
                     "Otherwise set to TRUE (i.e., should be async)."
                 ),
             },
