@@ -32,7 +32,6 @@ def encode_image(image_path: str) -> str:
 
 def _parse_iso(dt: str):
     try:
-        # Accept "YYYY-MM-DDTHH:MM:SS" or with timezone; fromisoformat handles both
         return datetime.fromisoformat(dt)
     except Exception:
         return None
@@ -142,7 +141,6 @@ def _normalize_extracted(meetings: list[ExtractedMeeting]) -> list[ExtractedMeet
         out.append(ExtractedMeeting(title=m.title, start_time=start, end_time=end))
     return out
 
-
 # ---------------- Stage 1: Extract meetings (image only) ----------------
 
 def _extract_meetings(image_path: str) -> ExtractionResult:
@@ -166,8 +164,6 @@ def _extract_meetings(image_path: str) -> ExtractionResult:
                     - DO NOT return duration strings like '30m' or natural language.\n
                     If start and end hours are missing, estimate and assume < 45 minutes).\n
                     If it's not a calendar, set calendar_detected=false and return meetings=[]."""
-
-
                 ),
             },
             {
@@ -177,6 +173,7 @@ def _extract_meetings(image_path: str) -> ExtractionResult:
                     {
                         "type": "image_url",
                         "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
+                        'detail': "high"
                     },
                 ],
             },
@@ -198,7 +195,7 @@ def _grade_meetings_async(extracted: List[ExtractedMeeting]) -> List[bool]:
     ]
 
     grading = client.chat.completions.parse(
-        model="gpt-4o-mini",
+        model="gpt-4o",
         response_format=AsyncGrading,
         messages=[
             {
