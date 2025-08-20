@@ -16,6 +16,9 @@ from models.calendar import (
     Meeting,
 )
 
+import re
+from datetime import datetime, time as dtime, date as ddate, timezone, timedelta
+
 dotenv.load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -52,6 +55,94 @@ def _aggregate_hours(meetings: List[Meeting]) -> Tuple[float, float]:
             savings += d
     return round(total, 3), round(savings, 3)
 
+
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}")
+_TIME_24H_RE = re.compile(r"^\s*\d{1,2}:\d{2}(:\d{2})?\s*$", re.I)
+_TIME_12H_RE = re.compile(r"^\s*\d{1,2}:\d{2}\s*(am|pm)\s*$", re.I)
+
+def _normalize_dt_string(s: str) -> str:
+    s = s.strip()
+    if not s:
+        return s
+    if _ISO_DATE_RE.match(s) and " " in s and "T" not in s:
+        s = s.replace(" ", "T", 1)
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    return s
+
+def _parse_datetime_loose(s: str) -> datetime | None:
+    if not s:
+        return None
+    s = _normalize_dt_string(s)
+
+    try:
+        return datetime.fromisoformat(s)
+    except Exception:
+        pass
+
+    if _TIME_24H_RE.match(s):
+        try:
+            t = dtime.fromisoformat(s)
+            return datetime.combine(ddate.today(), t)
+        except Exception:
+            pass
+
+    if _TIME_12H_RE.match(s):
+        try:
+            t = datetime.strptime(s.strip().lower(), "%I:%M %p").time()
+            return datetime.combine(ddate.today(), t)
+        except Exception:
+            pass
+
+    try:
+        return datetime.strptime(s, "%Y/%m/%dT%H:%M")
+    except Exception:
+        pass
+
+    return None
+
+def _duration_hours(start_iso: str, end_iso: str) -> float:
+    s = _parse_datetime_loose(start_iso)
+    e = _parse_datetime_loose(end_iso)
+
+    # If either failed, return 0 (keeps behavior but now succeeds more often)
+    if not s or not e:
+        return 0.0
+
+    # If model accidentally swapped, fix it
+    if e < s:
+        s, e = e, s
+
+    delta = (e - s).total_seconds()
+    return max(0.0, round(delta / 3600.0, 3))
+
+def _normalize_extracted(meetings: list[ExtractedMeeting]) -> list[ExtractedMeeting]:
+    out = []
+    for m in meetings:
+        start = (m.start_time or "").strip()
+        end = (m.end_time or "").strip()
+
+        # Accept "30m" / "45 minutes" if the model emitted a duration
+        dur_min = None
+        for pat in (r"^(\d+)\s*m(in(ute)?s?)?$", r"^(\d+)\s*minutes?$"):
+            m2 = re.match(pat, end, re.I)
+            if m2:
+                dur_min = int(m2.group(1))
+                break
+        # If only start time is present + duration, fabricate an end
+        if dur_min is not None and start:
+            sd = _parse_datetime_loose(start)
+            if sd:
+                end = (sd + timedelta(minutes=dur_min)).isoformat()
+
+        # Normalize trailing Z / space separators etc.
+        start = _normalize_dt_string(start)
+        end = _normalize_dt_string(end)
+
+        out.append(ExtractedMeeting(title=m.title, start_time=start, end_time=end))
+    return out
+
+
 # ---------------- Stage 1: Extract meetings (image only) ----------------
 
 def _extract_meetings(image_path: str) -> ExtractionResult:
@@ -61,7 +152,7 @@ def _extract_meetings(image_path: str) -> ExtractionResult:
     """
     base64_image = encode_image(image_path)
     completion = client.chat.completions.parse(
-        model=EXTRACT_MODEL,  # <— only place you change
+        model=EXTRACT_MODEL,
         response_format=ExtractionResult,
         messages=[
             {
@@ -70,9 +161,14 @@ def _extract_meetings(image_path: str) -> ExtractionResult:
                     "You extract meetings from calendar screenshots.\n"
                     "Return ONLY:\n"
                     "  calendar_detected: boolean\n"
-                    "  meetings: array of { title, start_time, end_time } (ISO 8601 times when available; "
-                    "  if missing, estimate and assume < 45 minutes).\n"
+                    " meetings: array of { title, start_time, end_time }"
+                    " if missing, estimate and assume < 45 minutes).\n"
                     "If it's not a calendar, set calendar_detected=false and return meetings=[]."
+                    "Return ONLY JSON matching the schema. For each meeting:\n"
+                    "- start_time and end_time MUST be full RFC3339 datetimes (example: 2025-08-19T13:30:00+00:00).\n"
+                    "- If the calendar shows only times, assume today's date and still return full RFC3339.\n"
+                    "- DO NOT return duration strings like '30m' or natural language.\n"
+
                 ),
             },
             {
@@ -144,7 +240,6 @@ def _make_recommendations(final_meetings: List[Meeting]) -> List[dict]:
     Each recommendation must include at least one concrete example referencing
     an actual meeting title from `final_meetings`.
     """
-    # Keep the payload light and deterministic for the model
     mini_view = [
         {
             "title": m.title,
@@ -196,7 +291,7 @@ def analyze_calendar_image(image_path: str) -> BackendResponse:
       5) Return BackendResponse
     """
     extraction = _extract_meetings(image_path)
-
+    extracted = _normalize_extracted(extraction.meetings)
     if not extraction.calendar_detected:
         return BackendResponse(
             calendar_detected=False,
@@ -207,20 +302,19 @@ def analyze_calendar_image(image_path: str) -> BackendResponse:
         )
 
     # Stage 2: grade
-    decisions = _grade_meetings_async(extraction.meetings)
+    decisions = _grade_meetings_async(extracted) or []
+    decisions += [False] * max(0, len(extraction.meetings) - len(decisions))
     # Align lengths defensively
     n = min(len(extraction.meetings), len(decisions))
-    final_meetings: List[Meeting] = []
-    for i in range(n):
-        em = extraction.meetings[i]
-        final_meetings.append(
-            Meeting(
-                title=em.title,
-                start_time=em.start_time,
-                end_time=em.end_time,
-                should_be_done_asynchronously=decisions[i],
-            )
-        )
+    final_meetings = [
+    Meeting(
+        title=em.title,
+        start_time=em.start_time,
+        end_time=em.end_time,
+        should_be_done_asynchronously=decisions[i],
+    )
+        for i, em in enumerate(extraction.meetings)
+    ]
 
     # Totals
     total_hours, savings_hours = _aggregate_hours(final_meetings)
