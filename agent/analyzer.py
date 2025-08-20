@@ -3,9 +3,10 @@ import base64
 import os
 from datetime import datetime
 from typing import List, Tuple
-
+import ast
 import dotenv
 from openai import OpenAI
+import json
 
 from models.calendar import (
     BackendResponse,
@@ -22,9 +23,16 @@ from datetime import datetime, time as dtime, date as ddate, timezone, timedelta
 dotenv.load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)
-EXTRACT_MODEL = os.getenv("ARAMEET_MODEL_EXTRACT", "gpt-4o") 
 
 # ----------------------- Utils -----------------------
+
+def create_file(file_path):
+  with open(file_path, "rb") as file_content:
+    result = client.files.create(
+        file=file_content,
+        purpose="vision",
+    )
+    return result.id
 
 def encode_image(image_path: str) -> str:
     with open(image_path, "rb") as image_file:
@@ -141,44 +149,65 @@ def _normalize_extracted(meetings: list[ExtractedMeeting]) -> list[ExtractedMeet
         out.append(ExtractedMeeting(title=m.title, start_time=start, end_time=end))
     return out
 
-# ---------------- Stage 1: Extract meetings (image only) ----------------
 
-def _extract_meetings(image_path: str) -> ExtractionResult:
+def _extract_meetings(img) -> str:
     """
     Uses EXTRACT_MODEL to: detect calendar + extract (title, start_time, end_time)
     No grading here.
     """
-    base64_image = encode_image(image_path)
-    completion = client.chat.completions.parse(
-        model=EXTRACT_MODEL,
-        response_format=ExtractionResult,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    """You extract meetings from calendar screenshots.\n
-                    EXTRACT ALL TEXT FROM THE IMAGE\n
-                    Return ONLY JSON matching the schema. For each meeting:\n
-                    - start_time and end_time MUST be full RFC3339 datetimes (example: 2025-08-19T13:30:00+00:00).\n
-                    - If the calendar shows only times, assume today's date and still return full RFC3339.\n
-                    - DO NOT return duration strings like '30m' or natural language.\n
-                    If start and end hours are missing, estimate and assume < 45 minutes).\n
-                    If it's not a calendar, set calendar_detected=false and return meetings=[]."""
-                ),
-            },
+    file_id = create_file(img)
+    response = client.responses.create(
+        model="gpt-4o-2024-11-20",
+        input=[
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": "Extract meetings from this image."},
                     {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
+                        "type": "input_text",
+                        "text": (
+                            """You extract meetings from calendar screenshots.
+                    Return ONLY JSON matching the schema. 
+                    For each meeting:
+                    - start_time and end_time MUST be full RFC3339 datetimes (example: 2025-08-19T13:30:00+00:00).\n
+                    - If the calendar shows only times, assume today's date and still return full RFC3339.
+                    - DO NOT return duration strings like '30m' or natural language.
+                    If start and end hours are missing, estimate and assume < 45 minutes).
+                    If it's not a calendar, set calendar_detected=false and return meetings=[].
+
+                    DO NOT ADD '''json AT THE BEGINNING OUTPUT ONLY JSON STRING
+
+                    EXAMPLE OUTPUT:
+                    {
+                    "calendar_detected": true,
+                    "meetings": [
+                        {
+                        "title": "Team Sync",
+                        "start_time": "2025-08-19T13:30:00+00:00",
+                        "end_time": "2025-08-19T14:30:00+00:00"
+                        },
+                        {
+                        "title": "Project Kickoff",
+                        "start_time": "2025-08-19T16:30:00+00:00",
+                        "end_time": "2025-08-19T17:30:00+00:00"
+                        }
+                    ]
+                    }
+                    """
+                        ),
+                    },
+                    {
+                        "type": "input_image",
+                        "file_id": file_id,
+                        "detail": "high",
                     },
                 ],
-            },
+            }
         ],
     )
-    return completion.choices[0].message.parsed
+    return response.output_text 
+
+# ---------------- Stage 1: Extract meetings (image only) ----------------
+
 
 # ----------- Stage 2: Grade meetings (should be async?) -----------------
 
@@ -286,6 +315,8 @@ def analyze_calendar_image(image_path: str) -> BackendResponse:
       5) Return BackendResponse
     """
     extraction = _extract_meetings(image_path)
+    parsed = json.loads(extraction)
+    extraction = ExtractionResult(**parsed)
     extracted = _normalize_extracted(extraction.meetings)
     if not extraction.calendar_detected:
         return BackendResponse(
@@ -331,13 +362,6 @@ def analyze_calendar_image(image_path: str) -> BackendResponse:
 
 # ------------- CLI smoke test -------------
 if __name__ == "__main__":
-    img = "uploads/calendar.png"
-    out = analyze_calendar_image(img)
-    # Print nicely
-    try:
-        # Pydantic v2
-        print(out.model_dump_json(indent=2, ensure_ascii=False))
-    except Exception:
-        # Fallback
-        import json
-        print(json.dumps(out.dict(), indent=2, ensure_ascii=False))
+    img = "uploads/calendar_1.png"
+    out = _extract_meetings(img)
+    print(out)

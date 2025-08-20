@@ -4,10 +4,6 @@ from typing import List, Optional
 
 # ---------- Final backend response types (what FastAPI will return) ----------
 
-
-class RawText(BaseModel):
-    text: str
-
 class Recommendation(BaseModel):
     title: str
     suggestion: str
