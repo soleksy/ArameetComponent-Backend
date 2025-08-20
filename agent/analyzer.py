@@ -22,7 +22,7 @@ from datetime import datetime, time as dtime, date as ddate, timezone, timedelta
 dotenv.load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)
-EXTRACT_MODEL = os.getenv("ARAMEET_MODEL_EXTRACT", "o4-mini") 
+EXTRACT_MODEL = os.getenv("ARAMEET_MODEL_EXTRACT", "gpt-4.1") 
 
 # ----------------------- Utils -----------------------
 
@@ -158,18 +158,15 @@ def _extract_meetings(image_path: str) -> ExtractionResult:
             {
                 "role": "system",
                 "content": (
-                    "You extract meetings from calendar screenshots.\n"
-                    "EXTRACT ALL TEXT FROM THE IMAGE\n"
-                    "BASED ON THE EXTRACTED TEXT\n"
-                    "Return ONLY:\n"
-                    "  calendar_detected: boolean\n"
-                    " ALL meetings: array of { title, start_time, end_time }"
-                    " if missing, estimate and assume < 45 minutes).\n"
-                    "If it's not a calendar, set calendar_detected=false and return meetings=[]."
-                    "Return ONLY JSON matching the schema. For each meeting:\n"
-                    "- start_time and end_time MUST be full RFC3339 datetimes (example: 2025-08-19T13:30:00+00:00).\n"
-                    "- If the calendar shows only times, assume today's date and still return full RFC3339.\n"
-                    "- DO NOT return duration strings like '30m' or natural language.\n"
+                    """You extract meetings from calendar screenshots.\n
+                    EXTRACT ALL TEXT FROM THE IMAGE\n
+                    Return ONLY JSON matching the schema. For each meeting:\n
+                    - start_time and end_time MUST be full RFC3339 datetimes (example: 2025-08-19T13:30:00+00:00).\n
+                    - If the calendar shows only times, assume today's date and still return full RFC3339.\n
+                    - DO NOT return duration strings like '30m' or natural language.\n
+                    If start and end hours are missing, estimate and assume < 45 minutes).\n
+                    If it's not a calendar, set calendar_detected=false and return meetings=[]."""
+
 
                 ),
             },
