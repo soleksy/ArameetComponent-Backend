@@ -1,4 +1,3 @@
-# main.py
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,7 +5,7 @@ from starlette.concurrency import run_in_threadpool
 from pathlib import Path
 import shutil, uuid, time, logging
 
-from models.calendar import BackendResponse
+from models.calendar import CalendarAnalysis
 from agent.analyzer import analyze_calendar_image
 
 # ── Logging Setup ────────────────────────────────────────
@@ -19,7 +18,7 @@ log = logging.getLogger("arameet.api")
 # ── FastAPI App ──────────────────────────────────────────
 app = FastAPI(
     title="Arameet Calendar Agent",
-    version="0.2.0",
+    version="0.1.0",
 )
 
 app.add_middleware(
@@ -35,21 +34,21 @@ UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 # ── /analyze Route ───────────────────────────────────────
-@app.post("/analyze", response_model=BackendResponse)
+@app.post("/analyze", response_model=CalendarAnalysis)
 async def analyze(file: UploadFile = File(...)):
     if not file.content_type.startswith("image/"):
         raise HTTPException(400, "File must be an image")
 
     ext = Path(file.filename).suffix or ".png"
     tmp_path = UPLOAD_DIR / f"{uuid.uuid4()}{ext}"
-
+    
     try:
         with tmp_path.open("wb") as buf:
             shutil.copyfileobj(file.file, buf)
         log.info("Received %s (%s)", file.filename, file.content_type)
 
         t0 = time.perf_counter()
-        result: BackendResponse = await run_in_threadpool(
+        result: CalendarAnalysis = await run_in_threadpool(
             analyze_calendar_image, str(tmp_path)
         )
         dt = time.perf_counter() - t0
