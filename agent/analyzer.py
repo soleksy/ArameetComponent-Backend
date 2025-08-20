@@ -22,7 +22,7 @@ from datetime import datetime, time as dtime, date as ddate, timezone, timedelta
 dotenv.load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)
-EXTRACT_MODEL = os.getenv("ARAMEET_MODEL_EXTRACT", "gpt-4.1") 
+EXTRACT_MODEL = os.getenv("ARAMEET_MODEL_EXTRACT", "gpt-4o") 
 
 # ----------------------- Utils -----------------------
 
