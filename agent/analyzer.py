@@ -159,9 +159,11 @@ def _extract_meetings(image_path: str) -> ExtractionResult:
                 "role": "system",
                 "content": (
                     "You extract meetings from calendar screenshots.\n"
+                    "EXTRACT ALL TEXT FROM THE IMAGE\n"
+                    "BASED ON THE EXTRACTED TEXT\n"
                     "Return ONLY:\n"
                     "  calendar_detected: boolean\n"
-                    " meetings: array of { title, start_time, end_time }"
+                    " ALL meetings: array of { title, start_time, end_time }"
                     " if missing, estimate and assume < 45 minutes).\n"
                     "If it's not a calendar, set calendar_detected=false and return meetings=[]."
                     "Return ONLY JSON matching the schema. For each meeting:\n"
