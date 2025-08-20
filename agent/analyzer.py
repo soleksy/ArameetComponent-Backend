@@ -157,15 +157,14 @@ def _extract_text_from_image(image_path: str) -> str:
                 {
                     "role": "system",
                     "content": (
-                        """You extract meetings from calendar screenshots.\n
-                        EXTRACT ALL TEXT FROM THE IMAGE\n"""
+                        """You extract text from calendar screenshots.\n"""
 
                     ),
                 },
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": "Extract meetings from this image."},
+                        {"type": "text", "text": "EXTRACT ALL TEXT FROM THE IMAGE."},
                         {
                             "type": "image_url",
                             "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
