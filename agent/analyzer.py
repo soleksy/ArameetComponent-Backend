@@ -14,7 +14,6 @@ from models.calendar import (
     AsyncGrading,
     RecommendationsEnvelope,
     Meeting,
-    RawText
 )
 
 import re
@@ -144,41 +143,9 @@ def _normalize_extracted(meetings: list[ExtractedMeeting]) -> list[ExtractedMeet
     return out
 
 
-def _extract_text_from_image(image_path: str) -> str:
-        """
-        Uses EXTRACT_MODEL to: detect calendar + extract (title, start_time, end_time)
-        No grading here.
-        """
-        base64_image = encode_image(image_path)
-        completion = client.chat.completions.parse(
-            model=EXTRACT_MODEL,
-            response_format=RawText,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        """You extract text from calendar screenshots.\n"""
-
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": "EXTRACT ALL TEXT FROM THE IMAGE."},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
-                        },
-                    ],
-                },
-            ],
-        )
-        return completion.choices[0].message.parsed
-
-
 # ---------------- Stage 1: Extract meetings (image only) ----------------
 
-def _extract_meetings(image_path: str , calendar_text: str) -> ExtractionResult:
+def _extract_meetings(image_path: str) -> ExtractionResult:
     """
     Uses EXTRACT_MODEL to: detect calendar + extract (title, start_time, end_time)
     No grading here.
@@ -191,15 +158,15 @@ def _extract_meetings(image_path: str , calendar_text: str) -> ExtractionResult:
             {
                 "role": "system",
                 "content": (
-                    f"""You extract meetings from calendar screenshots.\n
-                    GIVEN THE TEXT AND THE IMAGE:\n
-                    {calendar_text} \n
+                    """You extract meetings from calendar screenshots.\n
+                    EXTRACT ALL TEXT FROM THE IMAGE\n
                     Return ONLY JSON matching the schema. For each meeting:\n
                     - start_time and end_time MUST be full RFC3339 datetimes (example: 2025-08-19T13:30:00+00:00).\n
                     - If the calendar shows only times, assume today's date and still return full RFC3339.\n
                     - DO NOT return duration strings like '30m' or natural language.\n
                     If start and end hours are missing, estimate and assume < 45 minutes).\n
                     If it's not a calendar, set calendar_detected=false and return meetings=[]."""
+
 
                 ),
             },
@@ -322,8 +289,7 @@ def analyze_calendar_image(image_path: str) -> BackendResponse:
       4) Compute totals and savings
       5) Return BackendResponse
     """
-    text = _extract_text_from_image(image_path)
-    extraction = _extract_meetings(image_path, text)
+    extraction = _extract_meetings(image_path)
     extracted = _normalize_extracted(extraction.meetings)
     if not extraction.calendar_detected:
         return BackendResponse(
