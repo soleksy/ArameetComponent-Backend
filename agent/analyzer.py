@@ -166,16 +166,10 @@ def _extract_meetings(img) -> str:
                         "type": "input_text",
                         "text": (
                             """You extract meetings from calendar screenshots.
+                    
                     Return ONLY JSON matching the schema. 
-                    For each meeting:
-                    - start_time and end_time MUST be full RFC3339 datetimes (example: 2025-08-19T13:30:00+00:00).\n
-                    - If the calendar shows only times, assume today's date and still return full RFC3339.
-                    - DO NOT return duration strings like '30m' or natural language.
-                    If start and end hours are missing, estimate and assume < 45 minutes).
-                    If it's not a calendar, set calendar_detected=false and return meetings=[].
-
                     DO NOT ADD '''json AT THE BEGINNING OUTPUT ONLY JSON STRING
-
+                    YOU MUST EXTRACT ALL MEETING INFO EVEN IF THE DATA IS PARTIAL, IF START AND END DATES ARE MISSING MAKE YOUR BEST GUESSES LESS THAN 45 mins.
                     EXAMPLE OUTPUT:
                     {
                     "calendar_detected": true,
